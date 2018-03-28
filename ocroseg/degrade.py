@@ -22,7 +22,7 @@ def random_trs(translation=0.05, rotation=2.0, scale=0.1, aniso=0.1):
     aniso = 10**pyr.uniform(*aniso)
     c = cos(alpha)
     s = sin(alpha)
-    print "\t", (dx, dy), alpha, scale, aniso
+    # print "\t", (dx, dy), alpha, scale, aniso
     sm = np.array([[scale / aniso, 0], [0, scale * aniso]], 'f')
     m = np.array([[c, -s], [s, c]], 'f')
     m = np.dot(sm, m)
@@ -31,6 +31,6 @@ def random_trs(translation=0.05, rotation=2.0, scale=0.1, aniso=0.1):
         w, h = image.shape
         c = np.array([w, h]) / 2.0
         d = c - np.dot(m, c) + np.array([dx * w, dy * h])
-        return ndi.affine_transform(image, m, offset=d, order=order)
+        return ndi.affine_transform(image, m, offset=d, order=order, mode="nearest")
 
-    return f
+    return f, dict(translation=(dx, dy), alpha=alpha, scale=scale, aniso=aniso)

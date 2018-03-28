@@ -41,39 +41,22 @@ args = parser.parse_args()
 ARGS = {k: v for k, v in args.__dict__.items()}
 
 def expand_image(image):
+    if image is None: return None
     image = np.expand_dims(image, 0)
     image = np.expand_dims(image, 3)
     return image
-def add_mask(sample):
-    sample["mask"] = sample["output"]
-    return sample
-def dilate(image, r=3, floor=0.0):
-    image = ndi.maximum_filter(image, size=(1, r, 1, 1))
-    image = ndi.maximum_filter(image, size=(1, 1, r, 1))
-    image = np.maximum(image, np.amax(image) * floor)
-    return image
 
-source = gopen.open_source("uw3-framed-lines-train.tgz")
+source = gopen.open_source("zsub://localhost:10000/")
+sample = source.next()
+utils.print_sample(sample)
+
 pipeline = filters.compose(
-    filters.shuffle(100, 10),
-    filters.rename(input="framed.png", output="lines.png"),
-    filters.map(input=expand_image, output=expand_image),
-    #filters.transform(add_mask),
-    #filters.map(mask=lambda x: dilate(x, 100, 0.1))
+    filters.rename(input="png", output="lines.png", mask="mask.png"),
+    filters.map(input=expand_image, output=expand_image, mask=expand_image),
     )
 source = pipeline(source)
 sample = source.next()
 utils.print_sample(sample)
-
-degradation = None
-if 0:
-    if degradation is not None:
-        f = degrade.random_trs(**degradation)
-        pimage = f(pimage)
-        prawtarget = f(prawtarget)
-        prawmask = f(prawmask)
-    assert prawtarget.shape==pimage.shape, (prawtarget.shape, pimage.shape)
-    assert prawmask.shape==pimage.shape, (prawmask.shape, pimage.shape)
 
 def pixels_to_batch(x):
     b, d, h, w = x.size()
@@ -116,10 +99,6 @@ print model
 criterion = nn.MSELoss()
 criterion.cuda()
 
-cuinput = Variable(torch.randn(1, 1, 100, 100).cuda())
-cutarget = Variable(torch.randn(1, 1, 100, 100).cuda())
-cumask = Variable(torch.randn(1, 1, 100, 100).cuda())
-
 losses = [1.0]
 
 def zoom_like(image, shape):
@@ -127,71 +106,62 @@ def zoom_like(image, shape):
     image = helpers.asnd(image)
     ih, iw = image.shape
     scale = diag([ih * 1.0/h, iw * 1.0/w])
-    result = ndi.affine_transform(image, scale, output_shape=(h, w), order=1)
-    return helpers.astorch(result)
+    return ndi.affine_transform(image, scale, output_shape=(h, w), order=1)
 
-def assign_image_batch(tensor, array):
-    b, h, w, d = array.shape
-    tensor.data.resize_(b, d, h, w).copy_(torch.FloatTensor(array.transpose(0, 3, 1, 2)))
-
-def assign_image_batch_zoomed(tensor, array):
-    b, h, w, d = array.shape
-    ob, od, ow, oh = tensor.size()
-    scale = diag([h * 1.0/oh, w * 1.0/ow])
-    assert ob == b
-    assert od == d
+def zoom_like_batch(batch, shape):
+    b, h, w, d = batch.shape
+    oh, ow = shape
+    batch_result = []
     for i in range(b):
+        result = []
         for j in range(d):
-            zoomed = ndi.affine_transform(array[i, :, :, j], scale, output_shape=(oh, ow), order=1)
-            tensor[i, j].data.copy_(torch.FloatTensor(zoomed))
+            result.append(zoom_like(batch[i,:,:,j], (oh, ow)))
+        result = array(result).transpose(1, 2, 0)
+        batch_result.append(result)
+    result = array(batch_result)
+    return result
+
+
+def train_batch(model, image, target, mask=None, lr=1e-3):
+    cuinput = torch.FloatTensor(image.transpose(0, 3, 1, 2)).cuda()
+    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=0.0)
+    optimizer.zero_grad()
+    cuoutput = model(Variable(cuinput))
+    b, d, h, w = cuoutput.size()
+    if mask is not None:
+        mask = zoom_like_batch(mask, (h, w))
+        cumask = torch.FloatTensor(mask.transpose(0, 3, 1, 2)).cuda()
+        coutput = weighted_grad(cuoutput, Variable(cumask))
+    target = zoom_like_batch(target, (h, w))
+    cutarget = Variable(torch.FloatTensor(target.transpose(0, 3, 1, 2)).cuda())
+    loss = criterion(pixels_to_batch(cuoutput), pixels_to_batch(cutarget))
+    loss.backward()
+    optimizer.step()
+    return loss.data.cpu().numpy()[0], helpers.asnd(cuoutput).transpose(0, 2, 3, 1)
+
+def display_batch(image, target, output, mask=None):
+    clf()
+    if image is not None:
+        subplot(131); imshow(image[0,:,:,0])
+    if output is not None:
+        subplot(132); imshow(output[0,:,:,0])
+    if mask is not None:
+        overlay = array([target[0,:,:,0],target[0,:,:,0],mask[0,:,:,0]],'f').transpose(1, 2, 0)
+        subplot(133); imshow(overlay)
+        title("mask range {}".format(amin(mask), amax(mask)))
+    else:
+        subplot(133); imshow(target[0,:,:,0])
+    draw()
+    ginput(1, 1e-3)
 
 last_lr = -1
 for i, sample in enumerate(source):
     fname = sample["__key__"]
     count = i
-    pimage = sample["input"]
-    prawtarget = sample["output"]
-    prawmask = sample.get("mask")
-    assert pimage.shape == prawtarget.shape
-    lr = get_lr(count)
-    if lr != last_lr:
-        print "# learning rate", lr
-        optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=0.0)
-        last_lr = lr
-    if False and count%args.save_every==0:
-        microloss = int(1e6 * clip(mean(losses[-args.loss_horizon:]), 0, 1))
-        microloss = clip(microloss, 0, 999999)
-        save_name = "%s-%06d-%06d.pt" % (args.output, count//1000, microloss)
-        print "# saving", save_name
-        torch.save(model, save_name)
-    b, h, w, d = pimage.shape
-    if h > 3800 or w > 2700: continue
-    optimizer.zero_grad()
-    assign_image_batch(cuinput, pimage)
-    cuoutput = model(cuinput)
-    if prawmask is not None:
-        cumask.data.resize_(*cumask.size())
-        assign_image_batch_zoomed(cumask, prawmask)
-        cuoutput = WeightedGrad(cumask)(cuoutput)
-    cutarget.data.resize_(*cuoutput.size())
-    assign_image_batch_zoomed(cutarget, prawtarget)
-    loss = criterion(pixels_to_batch(cuoutput), pixels_to_batch(cutarget))
-    ploss = loss.data.cpu().numpy()[0]
-    losses.append(ploss)
-    print i, sample["__key__"], losses[-1]
-    loss.backward()
-    optimizer.step()
-    print count, fname, loss.data[0], cuoutput.data.select(1,0).min(), cuoutput.data.select(1,0).max()
+    image = sample["input"]
+    target = sample["output"]
+    mask = sample.get("mask")
+    loss, output = train_batch(model, image, target, mask, 1e-1)
+    print count, sample["__key__"], loss, fname, np.amin(output), np.amax(output)
     if count % 10 == 0:
-        poutput = helpers.asnd(cuoutput).transpose(0, 2, 3, 1)
-        clf()
-        lo=400; hi=600
-        subplot(131); imshow(pimage[0,:,:,0])
-        subplot(132); imshow(poutput[0,:,:,0])
-        if prawmask is not None:
-            subplot(133); imshow(array([prawtarget[0,:,:,0],prawtarget[0,:,:,0],prawmask[0,:,:,0]],'f').transpose(1, 2, 0))
-            print "mask range", amin(prawmask), amax(prawmask)
-        else:
-            subplot(133); imshow(prawtarget[0,:,:,0])
-        draw()
-        ginput(1, 1e-3)
+        display_batch(image, target, output, mask)
