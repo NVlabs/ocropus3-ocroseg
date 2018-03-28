@@ -116,6 +116,10 @@ print model
 criterion = nn.MSELoss()
 criterion.cuda()
 
+cuinput = Variable(torch.randn(1, 1, 100, 100).cuda())
+cutarget = Variable(torch.randn(1, 1, 100, 100).cuda())
+cumask = Variable(torch.randn(1, 1, 100, 100).cuda())
+
 losses = [1.0]
 
 def zoom_like(image, shape):
@@ -141,21 +145,6 @@ def assign_image_batch_zoomed(tensor, array):
             zoomed = ndi.affine_transform(array[i, :, :, j], scale, output_shape=(oh, ow), order=1)
             tensor[i, j].data.copy_(torch.FloatTensor(zoomed))
 
-def train_batch(model, image, target, lr, mask=None):
-    if "cuinput" not in dir(model):
-        model.cuinput = Variable(torch.randn(1, 1, 100, 100).cuda())
-        model.cutarget = Variable(torch.randn(1, 1, 100, 100).cuda())
-        model.cumask = Variable(torch.randn(1, 1, 100, 100).cuda())
-        model.lr = -1
-    if model.lr != lr:
-        model.lr = lr
-        model.optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=0.0)
-    assert image.ndim == 4
-    assert target.ndim == 4
-    optimizer.zero_grad()
-    assign_image_batch(cuinput, pimage)
-    cuoutput = model(cuinput)
-
 last_lr = -1
 for i, sample in enumerate(source):
     fname = sample["__key__"]
@@ -167,6 +156,7 @@ for i, sample in enumerate(source):
     lr = get_lr(count)
     if lr != last_lr:
         print "# learning rate", lr
+        optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=0.0)
         last_lr = lr
     if False and count%args.save_every==0:
         microloss = int(1e6 * clip(mean(losses[-args.loss_horizon:]), 0, 1))
@@ -176,6 +166,9 @@ for i, sample in enumerate(source):
         torch.save(model, save_name)
     b, h, w, d = pimage.shape
     if h > 3800 or w > 2700: continue
+    optimizer.zero_grad()
+    assign_image_batch(cuinput, pimage)
+    cuoutput = model(cuinput)
     if prawmask is not None:
         cumask.data.resize_(*cumask.size())
         assign_image_batch_zoomed(cumask, prawmask)
