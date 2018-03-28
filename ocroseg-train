@@ -1,0 +1,204 @@
+#!/usr/bin/python
+import os
+import re
+import glob
+import random as pyr
+import os.path
+import argparse
+
+import torch
+import scipy.ndimage as ndi
+import torch.nn.functional as F
+from pylab import *
+from torch import nn, optim, autograd
+from dlinputs import utils
+from dlinputs import gopen
+from dlinputs import filters
+from dltrainers import helpers
+from torch.autograd import Variable
+
+from ocroseg import layers, degrade
+
+default_degrade = "translation=0.03, rotation=1.0, scale=0.03, aniso=0.03"
+
+rc("image", cmap="gray")
+ion()
+
+parser = argparse.ArgumentParser("train a page segmenter")
+parser.add_argument("-m", "--model", default="clstm.model.py", help="load a model")
+parser.add_argument("-l", "--lr", default="0,5e-3:4e4,1e-3:8e4,5e-4", help="learning rate or learning rate sequence 'n,lr:n,lr:n,:r'")
+parser.add_argument("-D", "--dilate_target", default=0, type=int, help="extra dilation for target")
+parser.add_argument("-M", "--maskext", default="", help="extension for mask")
+parser.add_argument("-e", "--emphasis", default=10.0, type=float, help="line emphasis")
+parser.add_argument("-E", "--erange", default=20, type=int, help="line emphasis range")
+parser.add_argument("-o", "--output", default="temp", help="prefix for output")
+parser.add_argument("-d", "--degrade", default=default_degrade, type=str, help="degradation parameters")
+parser.add_argument("-S", "--scale", default=1.0, type=float, help="rescale prior to training")
+parser.add_argument("-P", "--params", default="", help="additional parameters for model")
+parser.add_argument("--save_every", default=1000, type=int, help="how often to save")
+parser.add_argument("--loss_horizon", default=1000, type=int, help="horizon over which to calculate the loss")
+args = parser.parse_args()
+ARGS = {k: v for k, v in args.__dict__.items()}
+
+def expand_image(image):
+    image = np.expand_dims(image, 0)
+    image = np.expand_dims(image, 3)
+    return image
+def add_mask(sample):
+    sample["mask"] = sample["output"]
+    return sample
+def dilate(image, r=3, floor=0.0):
+    image = ndi.maximum_filter(image, size=(1, r, 1, 1))
+    image = ndi.maximum_filter(image, size=(1, 1, r, 1))
+    image = np.maximum(image, np.amax(image) * floor)
+    return image
+
+source = gopen.open_source("uw3-framed-lines-train.tgz")
+pipeline = filters.compose(
+    filters.shuffle(100, 10),
+    filters.rename(input="framed.png", output="lines.png"),
+    filters.map(input=expand_image, output=expand_image),
+    #filters.transform(add_mask),
+    #filters.map(mask=lambda x: dilate(x, 100, 0.1))
+    )
+source = pipeline(source)
+sample = source.next()
+utils.print_sample(sample)
+
+degradation = None
+if 0:
+    if degradation is not None:
+        f = degrade.random_trs(**degradation)
+        pimage = f(pimage)
+        prawtarget = f(prawtarget)
+        prawmask = f(prawmask)
+    assert prawtarget.shape==pimage.shape, (prawtarget.shape, pimage.shape)
+    assert prawmask.shape==pimage.shape, (prawmask.shape, pimage.shape)
+
+def pixels_to_batch(x):
+    b, d, h, w = x.size()
+    return x.permute(0, 2, 3, 1).contiguous().view(b*h*w, d)
+
+class WeightedGrad(autograd.Function):
+    def forward(self, input, weights):
+        self.weights = weights
+        return input
+    def backward(self, grad_output):
+        return grad_output * self.weights, None
+
+def weighted_grad(x, y):
+    return WeightedGrad()(x, y)
+
+class PixelsToBatch(nn.Module):
+    def forward(self, x):
+        return pixels_to_batch(x)
+
+if ":" in args.lr:
+    learning_rates = [[float(y) for y in x.split(",")] for x in args.lr.split(":")]
+    assert learning_rates[0][0] == 0
+else:
+    lr0 = float(args.lr)
+    learning_rates = [[0, lr0]]
+
+def get_lr(count):
+    _, lr = learning_rates[0]
+    for n, l in learning_rates:
+        if count < n: break
+        lr = l
+    return lr
+
+start_count = 0
+
+execfile(args.model)
+model.cuda()
+print model
+
+criterion = nn.MSELoss()
+criterion.cuda()
+
+losses = [1.0]
+
+def zoom_like(image, shape):
+    h, w = shape
+    image = helpers.asnd(image)
+    ih, iw = image.shape
+    scale = diag([ih * 1.0/h, iw * 1.0/w])
+    result = ndi.affine_transform(image, scale, output_shape=(h, w), order=1)
+    return helpers.astorch(result)
+
+def assign_image_batch(tensor, array):
+    b, h, w, d = array.shape
+    tensor.data.resize_(b, d, h, w).copy_(torch.FloatTensor(array.transpose(0, 3, 1, 2)))
+
+def assign_image_batch_zoomed(tensor, array):
+    b, h, w, d = array.shape
+    ob, od, ow, oh = tensor.size()
+    scale = diag([h * 1.0/oh, w * 1.0/ow])
+    assert ob == b
+    assert od == d
+    for i in range(b):
+        for j in range(d):
+            zoomed = ndi.affine_transform(array[i, :, :, j], scale, output_shape=(oh, ow), order=1)
+            tensor[i, j].data.copy_(torch.FloatTensor(zoomed))
+
+def train_batch(model, image, target, lr, mask=None):
+    if "cuinput" not in dir(model):
+        model.cuinput = Variable(torch.randn(1, 1, 100, 100).cuda())
+        model.cutarget = Variable(torch.randn(1, 1, 100, 100).cuda())
+        model.cumask = Variable(torch.randn(1, 1, 100, 100).cuda())
+        model.lr = -1
+    if model.lr != lr:
+        model.lr = lr
+        model.optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=0.0)
+    assert image.ndim == 4
+    assert target.ndim == 4
+    optimizer.zero_grad()
+    assign_image_batch(cuinput, pimage)
+    cuoutput = model(cuinput)
+
+last_lr = -1
+for i, sample in enumerate(source):
+    fname = sample["__key__"]
+    count = i
+    pimage = sample["input"]
+    prawtarget = sample["output"]
+    prawmask = sample.get("mask")
+    assert pimage.shape == prawtarget.shape
+    lr = get_lr(count)
+    if lr != last_lr:
+        print "# learning rate", lr
+        last_lr = lr
+    if False and count%args.save_every==0:
+        microloss = int(1e6 * clip(mean(losses[-args.loss_horizon:]), 0, 1))
+        microloss = clip(microloss, 0, 999999)
+        save_name = "%s-%06d-%06d.pt" % (args.output, count//1000, microloss)
+        print "# saving", save_name
+        torch.save(model, save_name)
+    b, h, w, d = pimage.shape
+    if h > 3800 or w > 2700: continue
+    if prawmask is not None:
+        cumask.data.resize_(*cumask.size())
+        assign_image_batch_zoomed(cumask, prawmask)
+        cuoutput = WeightedGrad(cumask)(cuoutput)
+    cutarget.data.resize_(*cuoutput.size())
+    assign_image_batch_zoomed(cutarget, prawtarget)
+    loss = criterion(pixels_to_batch(cuoutput), pixels_to_batch(cutarget))
+    ploss = loss.data.cpu().numpy()[0]
+    losses.append(ploss)
+    print i, sample["__key__"], losses[-1]
+    loss.backward()
+    optimizer.step()
+    print count, fname, loss.data[0], cuoutput.data.select(1,0).min(), cuoutput.data.select(1,0).max()
+    if count % 10 == 0:
+        poutput = helpers.asnd(cuoutput).transpose(0, 2, 3, 1)
+        clf()
+        lo=400; hi=600
+        subplot(131); imshow(pimage[0,:,:,0])
+        subplot(132); imshow(poutput[0,:,:,0])
+        if prawmask is not None:
+            subplot(133); imshow(array([prawtarget[0,:,:,0],prawtarget[0,:,:,0],prawmask[0,:,:,0]],'f').transpose(1, 2, 0))
+            print "mask range", amin(prawmask), amax(prawmask)
+        else:
+            subplot(133); imshow(prawtarget[0,:,:,0])
+        draw()
+        ginput(1, 1e-3)
