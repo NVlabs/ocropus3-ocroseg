@@ -122,8 +122,10 @@ class Lstm1(nn.Module):
         seq = bdl2lbd(seq)
         l, bs, d = seq.size()
         assert d == self.ninput, seq.size()
-        h0 = Variable(typeas(torch.zeros(self.ndir, bs, self.noutput), seq), volatile=volatile)
-        c0 = Variable(typeas(torch.zeros(self.ndir, bs, self.noutput), seq), volatile=volatile)
+        h0 = Variable(
+            typeas(torch.zeros(self.ndir, bs, self.noutput), seq), volatile=volatile)
+        c0 = Variable(
+            typeas(torch.zeros(self.ndir, bs, self.noutput), seq), volatile=volatile)
         post_lstm, _ = self.lstm(seq, (h0, c0))
         return lbd2bdl(post_lstm)
 
@@ -144,18 +146,22 @@ class Lstm2to1(nn.Module):
         b, d, w, h = img.size()
         seq = img.permute(3, 0, 2, 1).contiguous().view(h, b * w, d)
         bs = b * w
-        h0 = Variable(typeas(torch.zeros(1, bs, self.noutput), img), volatile=volatile)
-        c0 = Variable(typeas(torch.zeros(1, bs, self.noutput), img), volatile=volatile)
+        h0 = Variable(
+            typeas(torch.zeros(1, bs, self.noutput), img), volatile=volatile)
+        c0 = Variable(
+            typeas(torch.zeros(1, bs, self.noutput), img), volatile=volatile)
         # HBsD -> HBsD
         assert seq.size() == (h, b * w, d), (seq.size(), (h, b * w, d))
         post_lstm, _ = self.lstm(seq, (h0, c0))
-        assert post_lstm.size() == (h, b * w, self.noutput), (post_lstm.size(), (h, b * w, self.noutput))
+        assert post_lstm.size() == (h, b * w, self.noutput), (post_lstm.size(),
+                                                              (h, b * w, self.noutput))
         # HBsD -> BsD -> BWD
         final = post_lstm.select(0, h - 1).view(b, w, self.noutput)
         assert final.size() == (b, w, self.noutput), (final.size(), (b, w, self.noutput))
         # BWD -> BDW
         final = final.permute(0, 2, 1).contiguous()
-        assert final.size() == (b, self.noutput, w), (final.size(), (b, self.noutput, self.noutput))
+        assert final.size() == (b, self.noutput, w), (final.size(),
+                                                      (b, self.noutput, self.noutput))
         return final
 
 
@@ -175,8 +181,10 @@ class Lstm1to0(nn.Module):
         seq = bdl2lbd(seq)
         l, b, d = seq.size()
         assert d == self.ninput, (d, self.ninput)
-        h0 = Variable(typeas(torch.zeros(1, b, self.noutput), seq), volatile=volatile)
-        c0 = Variable(typeas(torch.zeros(1, b, self.noutput), seq), volatile=volatile)
+        h0 = Variable(
+            typeas(torch.zeros(1, b, self.noutput), seq), volatile=volatile)
+        c0 = Variable(
+            typeas(torch.zeros(1, b, self.noutput), seq), volatile=volatile)
         assert seq.size() == (l, b, d)
         post_lstm, _ = self.lstm(seq, (h0, c0))
         assert post_lstm.size() == (l, b, self.noutput)
@@ -204,7 +212,8 @@ class RowwiseLSTM(nn.Module):
         c0 = Variable(c0, volatile=volatile)
         seqresult, _ = self.lstm(seq, (h0, c0))
         # WB'D' -> BD'HW
-        result = seqresult.view(w, h, b, self.noutput * self.ndir).permute(2, 3, 1, 0)
+        result = seqresult.view(
+            w, h, b, self.noutput * self.ndir).permute(2, 3, 1, 0)
         return result
 
 

@@ -14,10 +14,12 @@ from torch import nn, optim, autograd
 from dlinputs import utils
 from dlinputs import gopen
 from dlinputs import filters
+from dlinputs import paths
 from dltrainers import helpers
+from dltrainers import layers
 from torch.autograd import Variable
 
-from ocroseg import layers, degrade
+from ocroseg import degrade
 
 default_degrade = "translation=0.03, rotation=1.0, scale=0.03, aniso=0.03"
 
@@ -25,38 +27,78 @@ rc("image", cmap="gray")
 ion()
 
 parser = argparse.ArgumentParser("train a page segmenter")
-parser.add_argument("-m", "--model", default="clstm.model.py", help="load a model")
-parser.add_argument("-l", "--lr", default="0,5e-3:4e4,1e-3:8e4,5e-4", help="learning rate or learning rate sequence 'n,lr:n,lr:n,:r'")
-parser.add_argument("-D", "--dilate_target", default=0, type=int, help="extra dilation for target")
-parser.add_argument("-M", "--maskext", default="", help="extension for mask")
-parser.add_argument("-e", "--emphasis", default=10.0, type=float, help="line emphasis")
-parser.add_argument("-E", "--erange", default=20, type=int, help="line emphasis range")
+parser.add_argument("-l", "--lr", default="0,0.1:3e5,0.03:1e6,0.01", help="learning rate or learning rate sequence 'n,lr:n,lr:n,:r'")
+parser.add_argument("-b", "--batchsize", type=int, default=1)
 parser.add_argument("-o", "--output", default="temp", help="prefix for output")
-parser.add_argument("-d", "--degrade", default=default_degrade, type=str, help="degradation parameters")
-parser.add_argument("-S", "--scale", default=1.0, type=float, help="rescale prior to training")
-parser.add_argument("-P", "--params", default="", help="additional parameters for model")
+parser.add_argument("-m", "--model", default=None, help="load model")
+
+parser.add_argument("--degrade", default=default_degrade, type=str, help="degradation parameters")
+parser.add_argument("--erange", default=20, type=int, help="line emphasis range")
+parser.add_argument("--scale", default=1.0, type=float, help="rescale prior to training")
 parser.add_argument("--save_every", default=1000, type=int, help="how often to save")
 parser.add_argument("--loss_horizon", default=1000, type=int, help="horizon over which to calculate the loss")
+parser.add_argument("--dilate_target", default=0, type=int, help="extra dilation for target")
+parser.add_argument("--dilate_mask", default="(30,150)", help="dilate of target to make mask")
+parser.add_argument("--mask_background", default=0.0, type=float, help="background weight for mask")
+parser.add_argument("--ntrain", type=int, default=-1, help="ntrain starting value")
+
+parser.add_argument("-D", "--makesource", default=None)
+parser.add_argument("-P", "--makepipeline", default=None)
+parser.add_argument("-M", "--makemodel", default=None)
+parser.add_argument("--exec", dest="execute", nargs="*", default=[])
+
 args = parser.parse_args()
 ARGS = {k: v for k, v in args.__dict__.items()}
 
-def expand_image(image):
-    if image is None: return None
-    image = np.expand_dims(image, 0)
-    image = np.expand_dims(image, 3)
-    return image
 
-source = gopen.open_source("zsub://localhost:10000/")
-sample = source.next()
-utils.print_sample(sample)
+def make_source():
+    #return  gopen.open_source("zsub://localhost:10000/")
+    f = filters.ren({"png": "framed.png", "lines.png": "lines.png"})
+    return f(gopen.open_source("uw3-framed-lines.tgz"))
 
-pipeline = filters.compose(
-    filters.rename(input="png", output="lines.png", mask="mask.png"),
-    filters.map(input=expand_image, output=expand_image, mask=expand_image),
+
+def make_pipeline():
+
+    def transformer(sample):
+        if "mask.png" not in sample:
+            mask = ndi.maximum_filter(sample["lines.png"], eval(args.dilate_mask))
+            mask = np.maximum(mask, args.mask_background)
+            sample["mask.png"] = mask
+        sample["png"] = np.expand_dims(sample["png"], 2)
+        sample["lines.png"] = np.expand_dims(sample["lines.png"], 2)
+        sample["mask.png"] = np.expand_dims(sample["mask.png"], 2)
+        return sample
+
+    return filters.compose(
+        filters.shuffle(100, 10),
+        filters.transform(transformer),
+        filters.rename(input="png", output="lines.png", mask="mask.png"),
+        filters.batched(args.batchsize))
+
+def make_model():
+    r = 3
+    model = nn.Sequential(
+        nn.Conv2d(1, 8, r, padding=r//2),
+        nn.BatchNorm2d(8),
+        nn.ReLU(),
+        nn.MaxPool2d(2, 2),
+        nn.Conv2d(8, 16, r, padding=r//2),
+        nn.BatchNorm2d(16),
+        nn.ReLU(),
+        nn.MaxPool2d(2, 2),
+        nn.Conv2d(16, 32, r, padding=r//2),
+        nn.BatchNorm2d(32),
+        nn.ReLU(),
+        layers.LSTM2(32, 8),
+        nn.Conv2d(16, 1, 1),
+        nn.Sigmoid()
     )
-source = pipeline(source)
-sample = source.next()
-utils.print_sample(sample)
+    return model
+
+if args.makepipeline: execfile(args.makepipeline)
+if args.makesource: execfile(args.makesource)
+if args.makemodel: execfile(args.makemodel)
+for e in args.execute: exec args.execute
 
 def pixels_to_batch(x):
     b, d, h, w = x.size()
@@ -76,25 +118,41 @@ class PixelsToBatch(nn.Module):
     def forward(self, x):
         return pixels_to_batch(x)
 
-if ":" in args.lr:
-    learning_rates = [[float(y) for y in x.split(",")] for x in args.lr.split(":")]
-    assert learning_rates[0][0] == 0
-else:
-    lr0 = float(args.lr)
-    learning_rates = [[0, lr0]]
+class LearningRateSchedule(object):
+    def __init__(self, schedule):
+        if ":" in schedule:
+            self.learning_rates = [[float(y) for y in x.split(",")] for x in schedule.split(":")]
+            assert self.learning_rates[0][0] == 0
+        else:
+            lr0 = float(schedule)
+            self.learning_rates = [[0, lr0]]
+    def __call__(self, count):
+        _, lr = self.learning_rates[0]
+        for n, l in self.learning_rates:
+            if count < n: break
+            lr = l
+        return lr
 
-def get_lr(count):
-    _, lr = learning_rates[0]
-    for n, l in learning_rates:
-        if count < n: break
-        lr = l
-    return lr
+source = make_source()
+sample = source.next()
+utils.print_sample(sample)
+pipeline = make_pipeline()
+source = pipeline(source)
+sample = source.next()
+utils.print_sample(sample)
+
+if args.model:
+    model = torch.load(args.model)
+    ntrain, _ = paths.parse_save_path(args.model)
+else:
+    model = make_model()
+    ntrain = 0
+model.cuda()
+if args.ntrain >= 0: ntrain = args.ntrain
+print "ntrain", ntrain
+print model
 
 start_count = 0
-
-execfile(args.model)
-model.cuda()
-print model
 
 criterion = nn.MSELoss()
 criterion.cuda()
@@ -154,14 +212,29 @@ def display_batch(image, target, output, mask=None):
     draw()
     ginput(1, 1e-3)
 
-last_lr = -1
-for i, sample in enumerate(source):
+losses = []
+rates = LearningRateSchedule(args.lr)
+nbatches = 0
+for sample in source:
     fname = sample["__key__"]
-    count = i
     image = sample["input"]
     target = sample["output"]
     mask = sample.get("mask")
-    loss, output = train_batch(model, image, target, mask, 1e-1)
-    print count, sample["__key__"], loss, fname, np.amin(output), np.amax(output)
-    if count % 10 == 0:
+    lr = rates(ntrain)
+    try:
+        loss, output = train_batch(model, image, target, mask, lr)
+    except Exception, e:
+        utils.print_sample(sample)
+        print e
+        continue
+    losses.append(loss)
+    print nbatches, ntrain, sample["__key__"], loss, fname, np.amin(output), np.amax(output), "lr", lr
+    if nbatches>0 and nbatches%args.save_every==0:
+        err = float(np.mean(losses[-args.save_every:]))
+        fname = paths.make_save_path(args.output, ntrain, err)
+        torch.save(model, fname)
+        print "saved", fname
+    if nbatches % 10 == 0:
         display_batch(image, target, output, mask)
+    nbatches += 1
+    ntrain += len(image)

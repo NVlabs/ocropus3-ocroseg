@@ -31,7 +31,8 @@ def sl_tuple(s):
 
 
 def B(a):
-    if a.dtype == dtype('B'): return a
+    if a.dtype == dtype('B'):
+        return a
     return array(a, 'B')
 
 
@@ -51,7 +52,8 @@ def find_on_path(fname, path, separator=":"):
 
 def spread_labels(labels, maxdist=9999999):
     """Spread the given labels to the background"""
-    distances, features = morphology.distance_transform_edt(labels == 0, return_distances=1, return_indices=1)
+    distances, features = morphology.distance_transform_edt(
+        labels == 0, return_distances=1, return_indices=1)
     indexes = features[0] * labels.shape[1] + features[1]
     spread = labels.ravel()[indexes.ravel()].reshape(*labels.shape)
     spread *= (distances < maxdist)
@@ -104,7 +106,8 @@ def estimate_scale(binary):
     bysize = sorted(objects, key=sl_area)
     scalemap = zeros(binary.shape)
     for o in bysize:
-        if amax(scalemap[o]) > 0: continue
+        if amax(scalemap[o]) > 0:
+            continue
         scalemap[o] = sl_area(o)**0.5
     scale = median(scalemap[(scalemap > 3) & (scalemap < 100)])
     return scale
@@ -115,8 +118,10 @@ def compute_boxmap(binary, lo=10, hi=5000, dtype='i'):
     bysize = sorted(objects, key=sl_area)
     boxmap = zeros(binary.shape, dtype)
     for o in bysize:
-        if sl_area(o)**.5 < lo: continue
-        if sl_area(o)**.5 > hi: continue
+        if sl_area(o)**.5 < lo:
+            continue
+        if sl_area(o)**.5 > hi:
+            continue
         boxmap[o] = 1
     return boxmap
 
@@ -127,10 +132,13 @@ def compute_lines(segmentation, scale):
     lobjects = ndi.find_objects(segmentation)
     lines = []
     for i, o in enumerate(lobjects):
-        if o is None: continue
-        if sl_dim1(o) < 2 * scale or sl_dim0(o) < scale: continue
+        if o is None:
+            continue
+        if sl_dim1(o) < 2 * scale or sl_dim0(o) < scale:
+            continue
         mask = (segmentation[o] == i + 1)
-        if amax(mask) == 0: continue
+        if amax(mask) == 0:
+            continue
         result = record()
         result.label = i + 1
         result.bounds = o
@@ -153,10 +161,12 @@ def extract(image, y0, x0, y1, x1, mode='nearest', cval=0):
     sub = image[y:y + ch, x:x + cw]
     # print("extract", image.dtype, image.shape)
     try:
-        r = interpolation.shift(sub, (y - y0, x - x0), mode=mode, cval=cval, order=0)
+        r = interpolation.shift(sub, (y - y0, x - x0),
+                                mode=mode, cval=cval, order=0)
         if cw > w or ch > h:
             pady0, padx0 = max(-y0, 0), max(-x0, 0)
-            r = interpolation.affine_transform(r, eye(2), offset=(pady0, padx0), cval=1, output_shape=(ch, cw))
+            r = interpolation.affine_transform(r, eye(2), offset=(
+                pady0, padx0), cval=1, output_shape=(ch, cw))
         return r
 
     except RuntimeError:
@@ -164,7 +174,8 @@ def extract(image, y0, x0, y1, x1, mode='nearest', cval=0):
         # scipy.ndimage
         dtype = sub.dtype
         sub = array(sub, dtype='float64')
-        sub = interpolation.shift(sub, (y - y0, x - x0), mode=mode, cval=cval, order=0)
+        sub = interpolation.shift(
+            sub, (y - y0, x - x0), mode=mode, cval=cval, order=0)
         sub = array(sub, dtype=dtype)
         return sub
 
@@ -175,8 +186,8 @@ def extract_masked(image, linedesc, pad=5, expand=0, background=None):
     assert amin(image) >= 0 and amax(image) <= 1
     if background is None:
         background = amin(image)
-    y0,x0,y1,x1 = [int(x) for x in [linedesc.bounds[0].start,linedesc.bounds[1].start, \
-                  linedesc.bounds[0].stop,linedesc.bounds[1].stop]]
+    y0, x0, y1, x1 = [int(x) for x in [linedesc.bounds[0].start, linedesc.bounds[1].start,
+                                       linedesc.bounds[0].stop, linedesc.bounds[1].stop]]
     if pad > 0:
         mask = pad_image(linedesc.mask, pad, cval=0)
     else:
@@ -205,9 +216,12 @@ def reading_order(lines, highlight=None, debug=0):
         return u[1].stop < v[1].start
 
     def separates(w, u, v):
-        if w[0].stop < min(u[0].start, v[0].start): return 0
-        if w[0].start > max(u[0].stop, v[0].stop): return 0
-        if w[1].start < u[1].stop and w[1].stop > v[1].start: return 1
+        if w[0].stop < min(u[0].start, v[0].start):
+            return 0
+        if w[0].start > max(u[0].stop, v[0].stop):
+            return 0
+        if w[1].start < u[1].stop and w[1].stop > v[1].start:
+            return 1
 
     if highlight is not None:
         clf()
@@ -221,7 +235,8 @@ def reading_order(lines, highlight=None, debug=0):
                     order[i, j] = 1
             else:
                 if [w for w in lines if separates(w, u, v)] == []:
-                    if left_of(u, v): order[i, j] = 1
+                    if left_of(u, v):
+                        order[i, j] = 1
             if j == highlight and order[i, j]:
                 print((i, j), end=' ')
                 y0, x0 = sl.center(lines[i])
@@ -242,7 +257,8 @@ def topsort(order):
     L = []
 
     def visit(k):
-        if visited[k]: return
+        if visited[k]:
+            return
         visited[k] = 1
         for l in find(order[:, k]):
             visit(l)
@@ -250,7 +266,7 @@ def topsort(order):
 
     for k in range(n):
         visit(k)
-    return L  #[::-1]
+    return L  # [::-1]
 
 
 def show_lines(image, lines, lsort):
@@ -287,8 +303,10 @@ def propagate_labels(image, labels, conflict=0):
     outputs = zeros(amax(rlabels) + 1, 'i')
     oops = -(1 << 30)
     for o, i in cors.T:
-        if outputs[o] != 0: outputs[o] = oops
-        else: outputs[o] = i
+        if outputs[o] != 0:
+            outputs[o] = oops
+        else:
+            outputs[o] = i
     outputs[outputs == oops] = conflict
     outputs[0] = 0
     return outputs[rlabels]
@@ -296,7 +314,8 @@ def propagate_labels(image, labels, conflict=0):
 
 def remove_noise(line, minsize=8):
     """Remove small componentsfrom an image."""
-    if minsize == 0: return line
+    if minsize == 0:
+        return line
     bin = (line > 0.5 * amax(line))
     labels, n = ndi.label(bin)
     sums = measurements.sum(bin, labels, range(n + 1))
@@ -307,13 +326,13 @@ def remove_noise(line, minsize=8):
 
 def remove_big(image, max_h=100, max_w=100):
     """Remove large components."""
-    assert image.ndim==2
+    assert image.ndim == 2
     bin = (image > 0.5 * amax(image))
     labels, n = ndi.label(bin)
     objects = ndi.find_objects(labels)
     indexes = ones(n+1, 'i')
     for i, (yr, xr) in enumerate(objects):
-        if yr.stop-yr.start<max_h and xr.stop-xr.start<max_w:
+        if yr.stop-yr.start < max_h and xr.stop-xr.start < max_w:
             continue
         indexes[i+1] = 0
     indexes[0] = 0
@@ -327,7 +346,8 @@ def hysteresis_threshold(image, lo, hi):
     good = set((lablo * (image > hi)).flat)
     markers = zeros(n, 'i')
     for index in good:
-        if index == 0: continue
+        if index == 0:
+            continue
         markers[index] = 1
     return markers[lablo]
 
@@ -340,22 +360,26 @@ class LineSegmenter(object):
         self.model = torch.load(mname)
         self.invert = invert
         self.model.cuda()
-        self.cuinput = Variable(torch.randn(1, 1, 100, 100).cuda(), volatile=True)
+        self.cuinput = Variable(torch.randn(
+            1, 1, 100, 100).cuda(), volatile=True)
         self.docthreshold = docthreshold
 
     def line_probs(self, pimage):
-        if pimage.ndim == 3: pimage = mean(pimage, 2)
+        if pimage.ndim == 3:
+            pimage = mean(pimage, 2)
         ih, iw = pimage.shape
         pimage = pimage - amin(pimage)
         pimage /= amax(pimage)
         if self.invert:
             pimage = amax(pimage) - pimage
-        self.cuinput.data.resize_(1, 1, *pimage.shape).copy_(torch.FloatTensor(pimage))
+        self.cuinput.data.resize_(
+            1, 1, *pimage.shape).copy_(torch.FloatTensor(pimage))
         cuoutput = self.model(self.cuinput)
         poutput = cuoutput.data.cpu().numpy()[0, 0]
         oh, ow = poutput.shape
         scale = oh * 1.0 / ih
-        poutput = ndi.affine_transform(poutput, eye(2) * scale, output_shape=pimage.shape, order=1)
+        poutput = ndi.affine_transform(poutput, eye(
+            2) * scale, output_shape=pimage.shape, order=1)
         self.probs = poutput
         return poutput
 
@@ -375,7 +399,8 @@ class LineSegmenter(object):
         self.seeds = self.line_seeds(pimage)
         self.llabels = propagate_labels(self.boxmap, self.seeds, conflict=0)
         self.spread = spread_labels(self.seeds, maxdist=self.basic_size)
-        self.llabels = where(self.llabels > 0, self.llabels, self.spread * self.binary)
+        self.llabels = where(self.llabels > 0, self.llabels,
+                             self.spread * self.binary)
         self.segmentation = self.llabels * self.binary
         return self.segmentation
 
