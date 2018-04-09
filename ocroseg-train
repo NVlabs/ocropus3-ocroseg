@@ -27,7 +27,7 @@ rc("image", cmap="gray")
 ion()
 
 parser = argparse.ArgumentParser("train a page segmenter")
-parser.add_argument("-l", "--lr", default="0,0.1:3e5,0.03:1e6,0.01", help="learning rate or learning rate sequence 'n,lr:n,lr:n,:r'")
+parser.add_argument("-l", "--lr", default="0,0.03:3e5,0.01:1e6,0.003", help="learning rate or learning rate sequence 'n,lr:n,lr:n,:r'")
 parser.add_argument("-b", "--batchsize", type=int, default=1)
 parser.add_argument("-o", "--output", default="temp", help="prefix for output")
 parser.add_argument("-m", "--model", default=None, help="load model")
@@ -70,7 +70,7 @@ def make_pipeline():
         return sample
 
     return filters.compose(
-        filters.shuffle(100, 10),
+        filters.shuffle(500, 10),
         filters.transform(transformer),
         filters.rename(input="png", output="lines.png", mask="mask.png"),
         filters.batched(args.batchsize))
