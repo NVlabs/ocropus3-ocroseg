@@ -11,6 +11,7 @@ import scipy.ndimage as ndi
 import torch.nn.functional as F
 from pylab import *
 from torch import nn, optim, autograd
+import simplejson
 from dlinputs import utils
 from dlinputs import gopen
 from dlinputs import filters
@@ -22,6 +23,8 @@ from dlinputs import zcom
 
 default_degrade = "translation=0.03, rotation=1.0, scale=0.03, aniso=0.03"
 
+ion()
+
 parser = argparse.ArgumentParser("train a page segmenter")
 parser.add_argument("-d", "--degrade", default=default_degrade)
 parser.add_argument("-f", "--fields", default="framed.png,lines.png")
@@ -32,9 +35,11 @@ parser.add_argument("--distort", default="20.0:100.0")
 parser.add_argument("--noisesigma", default="0.5:1.5")
 parser.add_argument("--noisemag", default="0.1:0.2")
 
+parser.add_argument("--blur", default="0.0,1.0")
 parser.add_argument("--blobsper100", default="0.0,0.3")
 parser.add_argument("--blobsize", default="1.0:20.0")
 parser.add_argument("--rotation_limit", type=float, default=0.1)
+parser.add_argument("--display", action="store_true")
 
 parser.add_argument("--limit", type=int, default=1000000000)
 
@@ -47,7 +52,7 @@ ifield, ofield = args.fields.split(",")
 
 assert not os.path.exists(args.output)
 
-degradation = eval("dict(%s)" % default_degrade)
+degradation = eval("dict(%s)" % args.degrade)
 
 def R(r):
     if "," in r:
@@ -68,23 +73,39 @@ def degrade_sample(sample):
     nblobs = int(R(args.blobsper100) * h * w / (100.0 * 100.0))
     input = np.maximum(input, degrade.random_blobs((h, w), nblobs, R(args.blobsize)))
     #print "*gauss"
-    input = degrade.gauss_degrade(input, R(args.noisesigma), R(args.noisemag))
+    noisesig = R(args.noisesigma)
+    noisemag = R(args.noisemag)
+    input = degrade.gauss_degrade(input, noisesig, noisemag)
     #print "*distort"
+    maxdelta = R(args.maxdelta)
+    distort = R(args.distort)
     input, output = degrade.random_distort([input, output],
-                                           maxdelta=R(args.maxdelta),
-                                           sigma=R(args.distort))
+                                           maxdelta=maxdelta,
+                                           sigma=distort)
     #print "*trs"
     f, params = degrade.random_trs(rotation=args.rotation_limit)
     input, output = f(input), f(output)
     input = clip(input, 0, 1)
     output = clip(output, 0, 1)
+    #print "*blur"
+    blur = R(args.blur)
+    if blur>1e-5:
+        input = ndi.gaussian_filter(input, blur)
+    if amax(input)>0:
+        input /= amax(input)
     #print "*done"
-    return dict(input=input, output=output)
+    params.update(dict(blur=blur,
+                       nblobs=nblobs,
+                       maxdelta=maxdelta,
+                       distort=distort,
+                       noisesig=noisesig,
+                       noisemag=noisemag))
+    return dict(input=input, output=output, params=params)
 
 pipeline = filters.compose(
     filters.ren({"input": ifield, "output": ofield}),
     filters.transform(degrade_sample),
-    filters.ren({ifield: "input", ofield: "output"}),
+    filters.ren({ifield: "input", ofield: "output", "params.json": "params"}),
 )
 
 source = gopen.sharditerator_once(args.input)
@@ -94,4 +115,13 @@ for i, sample in enumerate(source):
     if i>=args.limit: break
     if i%1==0: print i, sample.get("__key__")
     if i==0: utils.print_sample(sample)
+    if args.display:
+        utils.print_sample(sample)
+        print simplejson.dumps(sample["params.json"], indent=4)
+        clf()
+        subplot(121); imshow(sample[ifield], cmap=cm.gray, vmin=0, vmax=1)
+        subplot(122); imshow(sample[ofield], cmap=cm.gray, vmin=0, vmax=1)
+        show()
+        ginput(1, 0.001)
+        print
     sink.write(sample)
