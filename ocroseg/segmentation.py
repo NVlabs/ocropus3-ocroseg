@@ -271,7 +271,9 @@ class Segmenter(object):
         self.lo = loprob or hiprob
         self.basic_size = 10
         self.docthreshold = docthreshold
-        self.model = torch.load(mname).cuda()
+        self.model = torch.load(mname)
+        self.model.cuda()
+        self.model.eval()
 
     def line_probs(self, image):
         timage = torch.FloatTensor(image).cuda()[None,None,:,:]

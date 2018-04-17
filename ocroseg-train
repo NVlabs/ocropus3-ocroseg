@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import os
+import sys
 import re
 import glob
 import random as pyr
@@ -31,7 +32,9 @@ parser.add_argument("-l", "--lr", default="0,0.03:3e5,0.01:1e6,0.003", help="lea
 parser.add_argument("-b", "--batchsize", type=int, default=1)
 parser.add_argument("-o", "--output", default="temp", help="prefix for output")
 parser.add_argument("-m", "--model", default=None, help="load model")
+parser.add_argument("-d", "--input", default="uw3-framed-lines.tgz")
 
+parser.add_argument("--maxtrain", type=int, default=10000000)
 parser.add_argument("--degrade", default=default_degrade, type=str, help="degradation parameters")
 parser.add_argument("--erange", default=20, type=int, help="line emphasis range")
 parser.add_argument("--scale", default=1.0, type=float, help="rescale prior to training")
@@ -41,6 +44,7 @@ parser.add_argument("--dilate_target", default=0, type=int, help="extra dilation
 parser.add_argument("--dilate_mask", default="(30,150)", help="dilate of target to make mask")
 parser.add_argument("--mask_background", default=0.0, type=float, help="background weight for mask")
 parser.add_argument("--ntrain", type=int, default=-1, help="ntrain starting value")
+parser.add_argument("--display", type=int, default=10, help="how often to display samples and outputs")
 
 parser.add_argument("-D", "--makesource", default=None)
 parser.add_argument("-P", "--makepipeline", default=None)
@@ -54,7 +58,7 @@ ARGS = {k: v for k, v in args.__dict__.items()}
 def make_source():
     #return  gopen.open_source("zsub://localhost:10000/")
     f = filters.ren({"png": "framed.png", "lines.png": "lines.png"})
-    return f(gopen.open_source("uw3-framed-lines.tgz"))
+    return f(gopen.open_source(args.input))
 
 
 def make_pipeline():
@@ -118,6 +122,7 @@ class PixelsToBatch(nn.Module):
     def forward(self, x):
         return pixels_to_batch(x)
 
+# FIXME replace with version in dltrainers
 class LearningRateSchedule(object):
     def __init__(self, schedule):
         if ":" in schedule:
@@ -135,11 +140,18 @@ class LearningRateSchedule(object):
 
 source = make_source()
 sample = source.next()
+
+print "raw sample:"
 utils.print_sample(sample)
+print
+
 pipeline = make_pipeline()
 source = pipeline(source)
 sample = source.next()
+
+print "preprocessed sample:"
 utils.print_sample(sample)
+print
 
 if args.model:
     model = torch.load(args.model)
@@ -150,7 +162,10 @@ else:
 model.cuda()
 if args.ntrain >= 0: ntrain = args.ntrain
 print "ntrain", ntrain
+
+print "model:"
 print model
+print
 
 start_count = 0
 
@@ -228,13 +243,17 @@ for sample in source:
         print e
         continue
     losses.append(loss)
-    print nbatches, ntrain, sample["__key__"], loss, fname, np.amin(output), np.amax(output), "lr", lr
+    print nbatches, ntrain, sample["__key__"],
+    print loss, fname, np.amin(output), np.amax(output), "lr", lr
     if nbatches>0 and nbatches%args.save_every==0:
         err = float(np.mean(losses[-args.save_every:]))
         fname = paths.make_save_path(args.output, ntrain, err)
         torch.save(model, fname)
         print "saved", fname
-    if nbatches % 10 == 0:
+    if args.display > 0 and nbatches % args.display == 0:
         display_batch(image, target, output, mask)
     nbatches += 1
     ntrain += len(image)
+    if ntrain >= args.maxtrain:
+        break
+    sys.stdout.flush()
