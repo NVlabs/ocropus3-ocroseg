@@ -142,10 +142,9 @@ def compute_lines(segmentation, scale):
         if sl_dim1(o) < 2 * scale or sl_dim0(o) < scale: continue
         mask = (segmentation[o] == i + 1)
         if amax(mask) == 0: continue
-        result = record()
-        result.label = i + 1
-        result.bounds = o
-        result.mask = mask
+        result = dict(label=i+1,
+                      bounds=o,
+                      mask=mask)
         lines.append(result)
     return lines
 
@@ -188,12 +187,13 @@ def extract_masked(image, linedesc, pad=5, expand=0, background=None):
         background = amin(image)
     elif background =="max":
         background = amax(image)
-    y0,x0,y1,x1 = [int(x) for x in [linedesc.bounds[0].start,linedesc.bounds[1].start, \
-                  linedesc.bounds[0].stop,linedesc.bounds[1].stop]]
+    bounds = linedesc["bounds"]
+    y0,x0,y1,x1 = [int(x) for x in [bounds[0].start,bounds[1].start, \
+                  bounds[0].stop,bounds[1].stop]]
     if pad > 0:
-        mask = pad_image(linedesc.mask, pad, cval=0)
+        mask = pad_image(linedesc["mask"], pad, cval=0)
     else:
-        mask = linedesc.mask
+        mask = linedesc["mask"]
     line = extract(image, y0 - pad, x0 - pad, y1 + pad, x1 + pad)
     if expand > 0:
         mask = ndi.maximum_filter(mask, (expand, expand))
@@ -308,5 +308,5 @@ class Segmenter(object):
         self.lineimage = self.line_segmentation(image, max_size=max_size)
         lines = compute_lines(self.lineimage, scale)
         for line in lines:
-            line.line_image = extract_masked(docimage, line, pad=pad, expand=expand, background=background)
+            line["image"] = extract_masked(docimage, line, pad=pad, expand=expand, background=background)
         return lines
