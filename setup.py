@@ -16,6 +16,12 @@ from distutils.core import setup  # , Extension, Command
 assert sys.version_info[0] == 2 and sys.version_info[1] >= 7,\
     "requires Python version 2.7 or later, but not Python 3.x"
 
+remote = "https://storage.googleapis.com/tmb-models/"
+models = ["lowskew-000000259-011440.pt"]
+for model in models:
+    if not os.path.exists(model):
+        urllib.URLopener().retrieve(remote+model, model)
+
 
 scripts = """
 ocroseg-train
@@ -30,4 +36,5 @@ setup(
     description="Text line recognition.",
     packages=["ocroseg"],
     scripts=scripts,
+    data_files = [("share/ocroseg", models)]
 )
