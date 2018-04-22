@@ -1,10 +1,6 @@
-#*
-*.tgz
-*~
-*#
-*-old
-*.bak
-*.o
-*.so
+build
 *.pyc
+*~
+*.tgz
 *.pt
+.ipynb_checkpoints
