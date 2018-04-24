@@ -16,12 +16,16 @@ import ocrobin
 from dlinputs import filters
 from dlinputs import gopen
 from dlinputs import utils
+from dlinputs import paths
 import ocroseg
 
 from ocroseg import degrade
 
+model_path = os.environ.get("MODELS", ".:/usr/local/share/ocroseg:/usr/share/ocroseg")
+default_model = "lowskew-000000259-011440.pt"
+
 parser = argparse.ArgumentParser("train a page segmenter")
-parser.add_argument("-m", "--model", default=None, help="load model")
+parser.add_argument("-m", "--model", default=default_model, help="load model")
 #parser.add_argument("-b", "--batchsize", type=int, default=1)
 parser.add_argument("-D", "--makesource", default=None)
 parser.add_argument("-P", "--makepipeline", default=None)
@@ -76,7 +80,10 @@ source = pipeline(source)
 if args.output:
     sink = gopen.open_sink(args.output)
 
-seg = ocroseg.Segmenter(args.model, hiprob=args.hiprob, loprob=args.loprob)
+mname = paths.find_file(model_path, args.model)
+assert mname is not None, "{}: model not found".format(args.model)
+print "loading", mname
+seg = ocroseg.Segmenter(mname, hiprob=args.hiprob, loprob=args.loprob)
 print seg.model
 
 for i, sample in enumerate(source):
