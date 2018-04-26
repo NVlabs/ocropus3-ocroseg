@@ -13,7 +13,7 @@ Segmentation is carried out using the `ocroseg.Segmenter` class. This needs a mo
 ```bash
 %%bash
 model=lowskew-000000259-011440.pt
-test -f $model || wget -nd https://storage.googleapis.com/tmb-models/$model
+test -f $model || wget --quiet -nd https://storage.googleapis.com/tmb-models/$model
 ```
 
 
@@ -90,7 +90,7 @@ imshow(image)
 
 
 
-    <matplotlib.image.AxesImage at 0x7f270015ad10>
+    <matplotlib.image.AxesImage at 0x7f6078b09690>
 
 
 
@@ -103,13 +103,13 @@ The `extract_textlines` method returns a list of text line images, bounding boxe
 
 ```python
 lines = seg.extract_textlines(image)
-imshow(lines[0].line_image)
+imshow(lines[0]['image'])
 ```
 
 
 
 
-    <matplotlib.image.AxesImage at 0x7f27000e2fd0>
+    <matplotlib.image.AxesImage at 0x7f60781c05d0>
 
 
 
@@ -127,7 +127,7 @@ imshow(seg.lines)
 
 
 
-    <matplotlib.image.AxesImage at 0x7f26ef9fd290>
+    <matplotlib.image.AxesImage at 0x7f60781a5510>
 
 
 
@@ -167,7 +167,7 @@ subplot(122); imshow(sample["lines.png"])
 
 
 
-    <matplotlib.image.AxesImage at 0x7f26ee12dd90>
+    <matplotlib.image.AxesImage at 0x7f60e3d9bc10>
 
 
 
@@ -197,7 +197,7 @@ def make_model():
     return model
 ```
 
-    Overwriting tinymodel.py
+    Writing tinymodel.py
 
 
 
@@ -213,7 +213,7 @@ def make_model():
     png float32 (3300, 2592)
     
     preprocessed sample:
-    __key__ <type 'list'> ['A005BIN']
+    __key__ <type 'list'> ['A002BIN']
     __source__ <type 'list'> ['testdata/framedlines.tgz']
     input float32 (1, 3300, 2592, 1)
     mask float32 (1, 3300, 2592, 1)
@@ -229,14 +229,14 @@ def make_model():
       (4): Sigmoid()
     )
     
-    0 0 ['A00BBIN'] 0.26948798 ['A00BBIN'] 0.41169813 0.57671887 lr 0.03
-    1 1 ['A00CBIN'] 0.2700115 ['A00CBIN'] 0.41164824 0.5702204 lr 0.03
-    2 2 ['A002BIN'] 0.2738667 ['A002BIN'] 0.41362688 0.5677617 lr 0.03
-    3 3 ['A00JBIN'] 0.26942334 ['A00JBIN'] 0.407331 0.55966264 lr 0.03
-    4 4 ['A008BIN'] 0.2651262 ['A008BIN'] 0.40311012 0.5607917 lr 0.03
-    5 5 ['A004BIN'] 0.26518792 ['A004BIN'] 0.3986093 0.5666517 lr 0.03
-    6 6 ['A006BIN'] 0.2620998 ['A006BIN'] 0.4080702 0.5597214 lr 0.03
-    7 7 ['A00FBIN'] 0.26412797 ['A00FBIN'] 0.399403 0.5521607 lr 0.03
-    8 8 ['A007BIN'] 0.25868407 ['A007BIN'] 0.4001082 0.563799 lr 0.03
-    9 9 ['A009BIN'] 0.25981042 ['A009BIN'] 0.39462054 0.55590415 lr 0.03
+    0 0 ['A006BIN'] 0.24655306 ['A006BIN'] 0.31490618 0.55315816 lr 0.03
+    1 1 ['A007BIN'] 0.24404158 ['A007BIN'] 0.30752876 0.54983306 lr 0.03
+    2 2 ['A004BIN'] 0.24024434 ['A004BIN'] 0.31007746 0.54046077 lr 0.03
+    3 3 ['A008BIN'] 0.23756175 ['A008BIN'] 0.30573484 0.5392694 lr 0.03
+    4 4 ['A00LBIN'] 0.22300518 ['A00LBIN'] 0.28594157 0.52989864 lr 0.03
+    5 5 ['A00MBIN'] 0.22032338 ['A00MBIN'] 0.28086954 0.52204597 lr 0.03
+    6 6 ['A00DBIN'] 0.22794804 ['A00DBIN'] 0.27466372 0.512208 lr 0.03
+    7 7 ['A009BIN'] 0.22404794 ['A009BIN'] 0.27621177 0.51116604 lr 0.03
+    8 8 ['A001BIN'] 0.22008553 ['A001BIN'] 0.27836022 0.5008192 lr 0.03
+    9 9 ['A00IBIN'] 0.21842314 ['A00IBIN'] 0.26755702 0.4992323 lr 0.03
 
