@@ -1,31 +1,18 @@
 #!/usr/bin/python
 import os
-import re
-import glob
-import random as pyr
 import os.path
 import argparse
 
-import torch
-import scipy.ndimage as ndi
-import torch.nn.functional as F
-from pylab import *
-from torch import nn, optim, autograd
 import simplejson
-from dlinputs import utils
-from dlinputs import gopen
-from dlinputs import filters
-from dltrainers import helpers
-from torch.autograd import Variable
+import scipy.ndimage as ndi
+from pylab import *
+from dlinputs import gopen, utils, filters
 
-from ocroseg import layers, degrade
-from dlinputs import zcom
+from ocroseg import degrade
 
 default_degrade = "translation=0.03, rotation=1.0, scale=0.03, aniso=0.03"
 
-ion()
-
-parser = argparse.ArgumentParser("train a page segmenter")
+parser = argparse.ArgumentParser("Degrade pages for page segmentation training.")
 parser.add_argument("-d", "--degrade", default=default_degrade)
 parser.add_argument("-f", "--fields", default="framed.png,lines.png")
 
@@ -39,7 +26,7 @@ parser.add_argument("--blur", default="0.0,1.0")
 parser.add_argument("--blobsper100", default="0.0,0.3")
 parser.add_argument("--blobsize", default="1.0:20.0")
 parser.add_argument("--rotation_limit", type=float, default=0.1)
-parser.add_argument("--display", action="store_true")
+parser.add_argument("--display", type=int, default=0)
 
 parser.add_argument("--limit", type=int, default=1000000000)
 
@@ -47,12 +34,17 @@ parser.add_argument("input")
 parser.add_argument("output")
 args = parser.parse_args()
 
+if args.display>0:
+    ion()
+
+
 ifield, ofield = args.fields.split(",")
 
 
 assert not os.path.exists(args.output)
 
 degradation = eval("dict(%s)" % args.degrade)
+
 
 def R(r):
     if "," in r:
@@ -71,7 +63,8 @@ def degrade_sample(sample):
     h, w = input.shape
     #print "*blobs"
     nblobs = int(R(args.blobsper100) * h * w / (100.0 * 100.0))
-    input = np.maximum(input, degrade.random_blobs((h, w), nblobs, R(args.blobsize)))
+    input = np.maximum(input, degrade.random_blobs(
+        (h, w), nblobs, R(args.blobsize)))
     #print "*gauss"
     noisesig = R(args.noisesigma)
     noisemag = R(args.noisemag)
@@ -89,9 +82,9 @@ def degrade_sample(sample):
     output = clip(output, 0, 1)
     #print "*blur"
     blur = R(args.blur)
-    if blur>1e-5:
+    if blur > 1e-5:
         input = ndi.gaussian_filter(input, blur)
-    if amax(input)>0:
+    if amax(input) > 0:
         input /= amax(input)
     #print "*done"
     params.update(dict(blur=blur,
@@ -101,6 +94,7 @@ def degrade_sample(sample):
                        noisesig=noisesig,
                        noisemag=noisemag))
     return dict(input=input, output=output, params=params)
+
 
 pipeline = filters.compose(
     filters.ren({"input": ifield, "output": ofield}),
@@ -112,16 +106,22 @@ source = gopen.sharditerator_once(args.input)
 source = pipeline(source)
 sink = gopen.open_sink(args.output)
 for i, sample in enumerate(source):
-    if i>=args.limit: break
-    if i%1==0: print i, sample.get("__key__")
-    if i==0: utils.print_sample(sample)
-    if args.display:
+    if i >= args.limit:
+        break
+    if i % 1 == 0:
+        print i, sample.get("__key__")
+    if i == 0:
+        utils.print_sample(sample)
+    if args.display > 0 and i % args.display == 0:
         utils.print_sample(sample)
         print simplejson.dumps(sample["params.json"], indent=4)
         clf()
-        subplot(121); imshow(sample[ifield], cmap=cm.gray, vmin=0, vmax=1)
-        subplot(122); imshow(sample[ofield], cmap=cm.gray, vmin=0, vmax=1)
+        subplot(121)
+        imshow(sample[ifield], cmap=cm.gray, vmin=0, vmax=1)
+        subplot(122)
+        imshow(sample[ofield], cmap=cm.gray, vmin=0, vmax=1)
         show()
         ginput(1, 0.001)
         print
     sink.write(sample)
+sink.close()

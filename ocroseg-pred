@@ -1,27 +1,16 @@
 #!/usr/bin/python
 import os
-import re
-import glob
-import random as pyr
 import os.path
 import argparse
 
-import torch
-import scipy.ndimage as ndi
-import torch.nn.functional as F
 from pylab import *
-from torch import nn, optim, autograd
-import matplotlib as mpl
-import ocrobin
-from dlinputs import filters
-from dlinputs import gopen
-from dlinputs import utils
-from dlinputs import paths
+from torch import nn
+from dlinputs import gopen, paths, utils, filters
+
 import ocroseg
 
-from ocroseg import degrade
-
-model_path = os.environ.get("MODELS", ".:/usr/local/share/ocroseg:/usr/share/ocroseg")
+model_path = os.environ.get(
+    "MODELS", ".:/usr/local/share/ocroseg:/usr/share/ocroseg")
 default_model = "lowskew-000000259-011440.pt"
 
 parser = argparse.ArgumentParser("train a page segmenter")
@@ -41,15 +30,16 @@ if args.display > 0:
     rc("image", cmap="gray", interpolation="bicubic")
     ion()
 
+
 def make_source():
-    return  gopen.sharditerator_once(args.input)
+    return gopen.sharditerator_once(args.input)
 
 
 def make_pipeline():
 
     def fixdepth(image):
         assert image.ndim in [2, 3]
-        if image.ndim==3:
+        if image.ndim == 3:
             image = np.mean(image, 2)
         image -= amin(image)
         image /= amax(image)
@@ -61,16 +51,22 @@ def make_pipeline():
         filters.rename(input="bin.png png gray.jpg jpeg jpg"),
         filters.map(input=fixdepth))
 
-if args.makesource: execfile(args.makesource)
-if args.makepipeline: execfile(args.makepipeline)
+
+if args.makesource:
+    execfile(args.makesource)
+if args.makepipeline:
+    execfile(args.makepipeline)
+
 
 def pixels_to_batch(x):
     b, d, h, w = x.size()
     return x.permute(0, 2, 3, 1).contiguous().view(b*h*w, d)
 
+
 class PixelsToBatch(nn.Module):
     def forward(self, x):
         return pixels_to_batch(x)
+
 
 source = make_source()
 pipeline = make_pipeline()
@@ -89,13 +85,16 @@ for i, sample in enumerate(source):
     print i, fname
     image = sample["input"]
     output = seg.line_probs(image)
-    #if nbatches % 10 == 0:
+    # if nbatches % 10 == 0:
     if args.display > 0:
         if i % args.display == 0:
             clf()
-            subplot(121); imshow(image, vmin=0, vmax=1)
-            subplot(122); imshow(output, vmin=0, vmax=1)
-            draw(); ginput(1, 1e-3)
+            subplot(121)
+            imshow(image, vmin=0, vmax=1)
+            subplot(122)
+            imshow(output, vmin=0, vmax=1)
+            draw()
+            ginput(1, 1e-3)
         waitforbuttonpress(0.0001)
     result = utils.metadict(sample, {
         "__key__": fname,

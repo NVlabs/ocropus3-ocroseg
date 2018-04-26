@@ -3,7 +3,6 @@ import sys
 import numpy as np
 import torch
 from torch import nn
-from torch.legacy import nn as legnn
 from torch.autograd import Variable
 
 sys.modules["layers"] = sys.modules["ocroseg.layers"]

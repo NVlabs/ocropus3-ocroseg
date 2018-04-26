@@ -1,8 +1,8 @@
 import random as pyr
 from math import pi, cos, sin
 
-import pylab
 import numpy as np
+import pylab
 import scipy.ndimage as ndi
 
 
@@ -76,6 +76,7 @@ def random_distort(images, maxdelta=2.0, sigma=30.0):
     deltas += xy
     return [ndi.map_coordinates(image, deltas, order=1) for image in images]
 
+
 def random_blobs(shape, numblobs, size, roughness=2.0):
     from random import randint
     h, w = shape
@@ -83,7 +84,7 @@ def random_blobs(shape, numblobs, size, roughness=2.0):
     for i in xrange(numblobs):
         mask[randint(0, h-1), randint(0, w-1)] = 1
     dt = ndi.distance_transform_edt(1-mask)
-    mask =  np.array(dt < size, 'f')
+    mask = np.array(dt < size, 'f')
     mask = ndi.gaussian_filter(mask, size/(2*roughness))
     mask -= np.amin(mask)
     mask /= np.amax(mask)

@@ -3,4 +3,3 @@ def make_source():
     return filters.merge([
         f(gopen.open_source("uw3-framed-lines.tgz")),
         f(gopen.open_source("uw3-framed-lines-degraded-@010.tgz"))])
-
