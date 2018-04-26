@@ -12,7 +12,8 @@ from ocroseg import degrade
 
 default_degrade = "translation=0.03, rotation=1.0, scale=0.03, aniso=0.03"
 
-parser = argparse.ArgumentParser("Degrade pages for page segmentation training.")
+parser = argparse.ArgumentParser(
+    "Degrade pages for page segmentation training.")
 parser.add_argument("-d", "--degrade", default=default_degrade)
 parser.add_argument("-f", "--fields", default="framed.png,lines.png")
 
@@ -34,7 +35,7 @@ parser.add_argument("input")
 parser.add_argument("output")
 args = parser.parse_args()
 
-if args.display>0:
+if args.display > 0:
     ion()
 
 

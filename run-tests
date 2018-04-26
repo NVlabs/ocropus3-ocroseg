@@ -1,0 +1,5 @@
+#!/bin/bash
+set -e
+for nbtest in README.ipynb; do
+    jupyter nbconvert --execute --to markdown $nbtest
+done
