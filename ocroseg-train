@@ -84,7 +84,7 @@ def make_model():
     b = args.complexity
     r = 3
     model = nn.Sequential(
-        nn.Conv2d(1, 16, r, padding=r//2),
+        nn.Conv2d(1, b, r, padding=r//2),
         nn.BatchNorm2d(b),
         nn.ReLU(),
         nn.MaxPool2d(2, 2),
