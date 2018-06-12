@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import sys
 import argparse
+import traceback
 
 import torch
 import scipy.ndimage as ndi
@@ -45,10 +46,9 @@ parser.add_argument("--ntrain", type=int, default=-
 parser.add_argument("--display", type=int, default=10,
                     help="how often to display samples and outputs")
 
-parser.add_argument("-D", "--makesource", default=None)
-parser.add_argument("-P", "--makepipeline", default=None)
-parser.add_argument("-M", "--makemodel", default=None)
+parser.add_argument("--load", nargs="*", default=[])
 parser.add_argument("--exec", dest="execute", nargs="*", default=[])
+parser.add_argument("--sync", default=None)
 
 args = parser.parse_args()
 ARGS = {k: v for k, v in args.__dict__.items()}
@@ -105,14 +105,10 @@ def make_model():
     return model
 
 
-if args.makepipeline:
-    execfile(args.makepipeline)
-if args.makesource:
-    execfile(args.makesource)
-if args.makemodel:
-    execfile(args.makemodel)
+for e in args.load:
+    execfile(e)
 for e in args.execute:
-    exec args.execute
+    exec e
 
 
 def pixels_to_batch(x):
@@ -271,6 +267,8 @@ for sample in source:
     try:
         loss, output = train_batch(model, image, target, mask, lr)
     except Exception, e:
+        print "OOPS"
+        traceback.print_exc(file=sys.stdout)
         utils.print_sample(sample)
         print e
         continue
@@ -281,6 +279,10 @@ for sample in source:
         err = float(np.mean(losses[-args.save_every:]))
         fname = paths.make_save_path(args.output, ntrain, err)
         torch.save(model, fname)
+        if args.sync is not None:
+            cmd = args.sync.format(fname=fname, ntrain=ntrain, base=args.savebase)
+            print "#", cmd
+            exec cmd
         print "saved", fname
     if args.display > 0 and nbatches % args.display == 0:
         display_batch(image, target, output, mask)
