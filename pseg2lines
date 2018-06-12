@@ -1,0 +1,66 @@
+#!/usr/bin/python
+import argparse
+from dlinputs import gopen, utils
+from collections import Counter
+import StringIO
+import PIL
+import scipy.ndimage as ndi
+from ocroseg import psegutils
+from ocroline import lineest
+
+parser = argparse.ArgumentParser("""\
+Convert page segmentation images to line images for training.
+
+This takes a segmentation image (an image in which each pixel is assigned
+a color based on the text line it is part of) and outputs a corresponding
+text line image suitable for training.
+""")
+parser.add_argument("--dilate", type=int, default=5)
+parser.add_argument("--display", type=int, default=0)
+parser.add_argument("--maxheight", type=int, default=300)
+parser.add_argument("input")
+parser.add_argument("output")
+args = parser.parse_args()
+
+if args.display:
+    from pylab import *
+    rc("image", cmap="gray", interpolation="bicubic")
+else:
+    from numpy import *
+
+data = gopen.sharditerator_once(args.input)
+sink = gopen.open_sink(args.output)
+
+for i, sample in enumerate(data):
+    utils.print_sample(sample)
+    pseg = sample["pseg.png"]
+    image = sample["png"]
+    assert mean(image) > amax(image)/2
+    fullpage = zeros(image.shape)
+    cn = lineest.CenterNormalizer()
+    textlines = list(psegutils.extract_textlines(pseg, 1-image, pad=0))
+    print "got", len(textlines), "textlines"
+    for j, (gray, bounds) in enumerate(textlines):
+        # print j, bounds
+        y0, y1, x0, x1 = bounds
+        if y1-y0 > args.maxheight: continue
+        line = cn.measure_and_normalize(gray*1.0)
+        cimg = zeros(gray.shape)
+        for i, y in enumerate(cn.center):
+            cimg[y, i] = 1
+        fullpage[y0:y1, x0:x1] = cimg
+    print "writing"
+    fullpage = ndi.maximum_filter(fullpage, args.dilate)
+    if args.display:
+        if i % args.display==0:
+            subplot(121); imshow(image)
+            subplot(122); imshow(fullpage)
+        ginput(1, 1e-4)
+    sink.write({
+        "__key__": sample["__key__"],
+        "png": sample["png"],
+        "lines.png": fullpage
+    })
+    print
+
+sink.close()

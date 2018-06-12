@@ -45,6 +45,8 @@ parser.add_argument("--ntrain", type=int, default=-
                     1, help="ntrain starting value")
 parser.add_argument("--display", type=int, default=10,
                     help="how often to display samples and outputs")
+parser.add_argument("--complexity", type=int, default=10,
+                    help="base model complexity")
 
 parser.add_argument("--load", nargs="*", default=[])
 parser.add_argument("--exec", dest="execute", nargs="*", default=[])
@@ -81,25 +83,26 @@ def make_pipeline():
 
 
 def make_model():
+    b = args.complexity
     r = 3
     model = nn.Sequential(
-        nn.Conv2d(1, 16, r, padding=r//2),
-        nn.BatchNorm2d(16),
+        nn.Conv2d(1, b, r, padding=r//2),
+        nn.BatchNorm2d(b),
         nn.ReLU(),
         nn.MaxPool2d(2, 2),
-        nn.Conv2d(16, 32, r, padding=r//2),
-        nn.BatchNorm2d(32),
+        nn.Conv2d(b, b*2, r, padding=r//2),
+        nn.BatchNorm2d(b*2),
         nn.ReLU(),
         nn.MaxPool2d(2, 2),
-        nn.Conv2d(32, 64, r, padding=r//2),
-        nn.BatchNorm2d(64),
+        nn.Conv2d(b*2, b*4, r, padding=r//2),
+        nn.BatchNorm2d(b*4),
         nn.ReLU(),
-        layers.LSTM2(64, 32),
-        nn.Conv2d(64, 32, 1),
-        nn.BatchNorm2d(32),
+        layers.LSTM2(b*4, b*2),
+        nn.Conv2d(b*4, b*2, 1),
+        nn.BatchNorm2d(b*2),
         nn.ReLU(),
-        layers.LSTM2(32, 32),
-        nn.Conv2d(64, 1, 1),
+        layers.LSTM2(b*2, b*2),
+        nn.Conv2d(b*4, 1, 1),
         nn.Sigmoid()
     )
     return model
