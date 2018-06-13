@@ -285,7 +285,7 @@ for sample in source:
         if args.sync is not None:
             cmd = args.sync.format(fname=fname, ntrain=ntrain, base=args.savebase)
             print "#", cmd
-            exec cmd
+            assert os.system(cmd) == 0
         print "saved", fname
     if args.display > 0 and nbatches % args.display == 0:
         display_batch(image, target, output, mask)
