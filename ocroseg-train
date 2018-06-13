@@ -285,7 +285,7 @@ for sample in source:
         fname = paths.make_save_path(args.output, ntrain, err)
         torch.save(model, fname)
         if args.sync is not None:
-            cmd = args.sync.format(fname=fname, ntrain=ntrain, base=args.savebase)
+            cmd = args.sync.format(fname=fname, ntrain=ntrain, base=args.output)
             print "#", cmd
             assert os.system(cmd) == 0
         print "saved", fname
